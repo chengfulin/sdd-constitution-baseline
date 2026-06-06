@@ -1,0 +1,257 @@
+# Spec-Driven Development 憲章（核心通用版）
+
+> 版本：5.0.0｜狀態：生效中｜適用範圍：所有應用類型與服務風險分級
+>
+> 本文件為**最高層級規範**。所有 spec、plan、task 與實作皆須遵循本憲章。
+> 當下層文件（spec / plan / 程式碼）與本憲章衝突時，**以本憲章為準**。
+
+## 文件結構與載入指引
+
+本憲章採「**核心原則 + 服務風險分級 + 應用類型 / 基礎設施延伸**」結構。各文件以**前綴式編號**標示條款（如 `§CP-2`、`§API-2`、`§SVC-5`、`§DEP-7`），不使用全域章號，便於穩定引用：
+
+| 前綴 | 範圍 | 文件 |
+|------|------|------|
+| **CP** | 核心原則（Core Principles，不可妥協）| 本檔 |
+| **TR** | 分級適用之延伸要求（Tiered Requirements）| 本檔 |
+| **GV** | 治理（Governance）| 本檔 |
+| **API** | API 服務應用面 | [`constitution-api.md`](constitution-api.md) |
+| **FE** | 前端應用面 | [`constitution-frontend.md`](constitution-frontend.md) |
+| **SH** | Shell Script 應用面 | [`constitution-shell.md`](constitution-shell.md) |
+| **SVC** | 跨服務治理（Service Governance）| [`constitution-microservice.md`](constitution-microservice.md) |
+| **DEP** | 部署與基礎設施（Deployment / Infra，橫切）| [`constitution-deployment.md`](constitution-deployment.md) |
+
+**三個邊界**：應用延伸（API / FE / SH）只規範**該應用本身**的設計與行為；**跨服務治理**（契約、事件、追蹤、韌性、資料邊界、並行、生命週期）集中於 **SVC**；**部署與基礎設施**（容器、Compose、第三方服務、DB 拓樸、檔案儲存、反向代理）集中於 **DEP**。
+
+| 我的專案是… | 須載入文件 |
+|------------|-----------|
+| 任何應用（共通基線）| 本檔（CP + TR + GV + 附錄）|
+| API 服務 | 本檔 + API |
+| 微服務（後端服務）| 本檔 + API + SVC + DEP |
+| 工具服務（Python / Shell，容器化）| 本檔 + DEP（+ SH 若以 shell 實作；+ API 若對外提供 API）|
+| Shell Script | 本檔 + SH |
+| 前端網頁應用 | 本檔 + FE（+ DEP 若容器化部署）|
+
+> 凡**容器化部署**之自建服務（含前端、工具服務），一律加載 DEP。
+> 技術選型（框架、語言）非本憲章強制項，建議另見 [`tech-standards.md`](tech-standards.md)（團隊技術標準建議）。
+
+---
+
+## 規範用語（RFC 2119）
+
+本文件中的關鍵字依 RFC 2119 解釋：
+
+- **MUST / 必須**：絕對要求，無例外。違反即視為不合格，不得合併（merge）。
+- **MUST NOT / 禁止**：絕對禁止。
+- **SHOULD / 應**：強烈建議。若不遵循，**必須在 spec 或 PR 中說明理由**。
+- **MAY / 可**：選擇性，視情境決定。
+
+---
+
+## 服務風險分級（Service Risk Tiers）
+
+核心原則（CP）對所有分級一律適用；**延伸要求（TR 與應用 / 基礎設施延伸）的強制程度依服務風險分級調整**，詳見附錄 B。
+
+風險分級依「**資料敏感度 × 故障影響範圍（blast radius）× 對外承諾**」評估，而非僅看專案標籤。
+
+| 風險分級 | 說明 | 典型情境 |
+|---------|------|---------|
+| **Critical（關鍵）** | 金流、認證授權、核心交易、個資 / PII、對外 SLA 服務 | 支付、登入、訂單核心 |
+| **Standard（標準）** | 一般正式業務服務 | 多數正式微服務、業務 API |
+| **Internal（內部）** | 內部工具或低風險輔助服務，不直接對外 | 內部後台、輔助 worker |
+| **Experimental（實驗）** | POC / Spike / demo，生命週期短 | 技術試作、提案驗證 |
+
+### 團隊專案類型 × 風險分級對照
+
+團隊慣用的「專案類型」可對照下表初判風險分級，但**最終以實際風險評估為準**——同一專案類型可能因處理的資料與影響範圍落入不同風險級：
+
+| 團隊專案類型 | 預設風險分級 | 升級 / 調整條件 |
+|------------|------------|---------------|
+| 正式專案 | Standard | 涉及金流 / 認證 / 核心交易 / 個資 → **Critical** |
+| POC 專案 | Experimental | 將轉為正式且處理真實 / 敏感資料 → 重評為 **Standard**（必要時 Critical）|
+| 內部探索型實驗（Demo / 實驗）| Experimental（純試驗）/ Internal（長期內部工具）| 一旦對外開放 → 至少 **Standard** |
+| 快速驗證 / 微調（Spike / Tweak）| Experimental | 套用其所依附**母服務**之風險分級 |
+
+**解說**：專案類型描述「成熟度 / 意圖」，風險分級描述「出錯的後果」。兩者通常相關（POC 多為 Experimental、正式專案多為 Standard），但驅動規範強度的是**風險**。例如一個「POC」若直接讀寫正式個資庫，應以 Critical 對待；一個「正式專案」若只是內部唯讀儀表板，可降為 Internal。
+
+規則：
+- 每個服務 / 專案 **MUST** 在 README 或 spec 標示其**風險分級**（並建議註明對應的團隊專案類型）。
+- 風險**提升**時，**MUST** 在 spec / PR 補齊新分級對應的延伸要求。
+- 未標示 → 預設以 **Standard** 處理；若無法判定且可能涉及敏感資料 → 以 **Critical** 處理。
+
+---
+
+## 核心原則（CP — 不可妥協，所有分級一律適用）
+
+以下六項為團隊 SDD 的共同底線，**任何分級、任何應用類型皆 MUST 遵循**，且不適用「低分級豁免」。
+
+### §CP-1 Spec 與實作可追溯（Spec ↔ Implementation Traceability）
+
+- 任何功能、修改或修復 **MUST** 可追溯至 spec 或需求來源（issue / 需求單）。**MUST NOT** 出現無來源的變更。
+- Spec **MAY** 採輕量形式（如 issue 或 PR 描述），但 **MUST** 至少說明目的與驗收條件。完整 spec 欄位之要求依分級，見 §TR-1。
+- 程式碼行為 **MUST** 與 spec 一致。實作過程發現 spec 有誤或不足，**MUST** 先更新 spec 再改程式碼，不得讓 spec 過時。
+
+### §CP-2 機密不得提交（No Secrets in Source）
+
+- 任何機密（access token、API key、帳號、密碼、連線字串、憑證、金鑰等）**MUST NOT** 寫死於程式碼、設定檔或 script，亦 **MUST NOT** 進入版本控制。
+- 機密 **MUST** 透過環境變數讀取，由系統 / 部署環境注入；`.env` 等含機密檔案 **MUST** 列入 `.gitignore`。
+- 機密 **MUST NOT** 出現在 log、錯誤訊息、API 回應或測試輸出中；輸出前 **MUST** 遮罩（如 `****`）。
+- **SHOULD** 提供 `.env.example` 列出所需環境變數**名稱**與用途（不含真實值）。
+
+### §CP-3 設定不得硬編碼（No Hardcoded Configuration）
+
+- 所有會因環境而異的設定（base URL、domain、port、逾時、功能旗標等）**MUST** 透過環境變數或設定參數提供，**MUST NOT** 寫死。
+- **MUST** 明確定義環境別（如 `APP_ENV` / `NODE_ENV`），至少含 `development` 與 `production`。
+- 預設值僅可用於**非機密、非環境敏感**項目。
+
+### §CP-4 核心邏輯需有測試（Core Logic Must Be Tested）
+
+- 核心 / 主要商業邏輯 **MUST** 有自動化測試，涵蓋正常路徑與主要錯誤情境。
+- 測試 **MUST** 可獨立、可重複執行，不依賴外部服務狀態（外部依賴 **SHOULD** 以 mock / stub 隔離）。
+- 測試廣度（邊界全覆蓋）、覆蓋率門檻等依分級調整，見 §TR-2。
+
+### §CP-5 變更需經審查（Changes Must Be Reviewed）
+
+- 所有變更 **MUST** 透過版本控制管理，並經由 Pull Request 審查後合併。
+- PR 審查 **MAY** 由 AI agent 執行，但最終合併 **MUST** 由人為核准，**MUST NOT** 由 AI agent 自動合併。
+- PR **MUST** 連結對應的 spec 或需求來源。
+- Commit 訊息 **SHOULD** 說明「為什麼」而非僅「做了什麼」。
+
+### §CP-6 例外需可追蹤（Exceptions Must Be Traceable）
+
+- 任何對 **MUST / MUST NOT** 的例外 **MUST** 可追蹤、有記錄（見 §GV-2 之記錄方式，低風險例外可採輕量模板）。
+- 未經記錄之例外一律視為違規，不得合併。
+
+---
+
+## 分級適用之延伸要求（TR — Tiered Requirements）
+
+本節規範**依服務風險分級調整**的延伸要求。各項強制程度的速查見**附錄 B（分級適用矩陣）**；以下為各項之內容細節。除另有標註，下列細節以 **Critical / Standard** 為基準描述。
+
+### §TR-1 完整 Spec 與驗收測試
+
+- 完整 spec **SHOULD** 描述：目的、輸入、輸出、行為、邊界條件、錯誤情境、驗收條件。
+- Critical / Standard：每個驗收條件 **MUST** 對應至少一個自動化測試案例。
+- 較低分級依附錄 B 放寬（Internal 為 SHOULD、Experimental 為 MAY），但 §CP-1 之可追溯性不可豁免。
+
+### §TR-2 測試廣度與覆蓋率（風險導向矩陣）
+
+- 採**風險導向測試**，依服務風險分級決定必備測試類型（契約 / 整合測試之細節見 §SVC-2）：
+
+  | 風險分級 | 必備測試 |
+  |---------|---------|
+  | **Critical** | unit + contract + integration + 失敗路徑（failure path）+ 資料遷移（migration）測試 |
+  | **Standard** | unit + contract + 關鍵 integration |
+  | **Internal** | 核心 unit + smoke 測試 |
+  | **Experimental** | 以 PR 描述驗收即可；具核心商業邏輯者仍依 §CP-4 補最小單元測試 |
+
+- 覆蓋率為**輔助指標，MUST NOT 作為唯一品質門檻**。僅對 API 服務適用數字參考：Critical / Standard **SHOULD** 達 statement ≥ 80%、branch ≥ 60%，且 **SHOULD** 優先要求 contract、核心 domain 與錯誤路徑測試，而非堆疊低價值測試衝高覆蓋率。
+- **Shell Script 與前端應用不套用數字覆蓋率門檻**，以「主要邏輯、邊界與例外案例通過」為準（見 §SH-4、§FE-7）。
+
+### §TR-3 相依套件安全（Dependency Security）
+
+- 相依套件 **MUST**（Critical / Standard）/ **SHOULD**（Internal / Experimental）以 lock file 固定版本並納入版控。
+- Critical / Standard CI **MUST** 執行相依套件安全掃描（如 `npm audit`、`pip audit`、`trivy`）；高危漏洞（CVSS ≥ 7.0）**MUST** 於合併前修復或取得例外核准（見 §GV-2）。Internal **SHOULD**、Experimental **MAY**（見附錄 B）。
+- 掃描發現漏洞時 **SHOULD** 以 PR 提出修改建議，並說明：受影響的程式碼 / 邏輯範圍、修改內容、**不修正所承擔的風險**，供審查者判斷。
+- **MUST NOT** 將開發用相依（devDependencies）打包進 production 產物。
+
+### §TR-4 日誌與可觀測性（Logging & Observability）
+
+- 結構化日誌（如 JSON、標註 log level）：Critical **MUST**、Standard **SHOULD**；對外部服務呼叫與錯誤 **SHOULD** 記錄足以追蹤的內容（request id、耗時、狀態）。
+- 日誌 **MUST NOT** 記錄機密（見 §CP-2，此為核心原則，所有分級適用）。
+- 分散式追蹤（跨服務 trace context）見 §SVC-4；較低分級之可觀測性程度依附錄 B。
+
+### §TR-5 審計日誌（Audit Logging）
+
+- **限後端服務**，且涉及**權限變更、機密操作，或安全敏感 / 商務關鍵資料**之新增 / 修改 / 刪除時：Critical / Standard **MUST** 寫入審計日誌，記錄操作者、動作、目標資源、時間、來源（IP / 請求 ID）、結果。
+- 審計日誌 **MUST NOT** 記錄機密原始值；**SHOULD** 與一般日誌分離存放並控管存取；**MUST NOT** 被應用程式本身刪改。
+- 不涉及上述敏感 / 關鍵資料的應用，或較低分級，依附錄 B（多為 SHOULD / MAY）。
+
+### §TR-6 CI 合併閘門（依分級）
+
+- 合併閘門分為「自動閘門」與「人工審查清單」，定義見 §GV-3；各項對各風險分級的強制程度見附錄 B。
+- 核心原則相關之檢查（可追溯、無機密、經審查）為**所有分級的最低必要閘門**。
+
+---
+
+## 治理（GV — Governance）
+
+### §GV-1 修訂
+
+- 本憲章之修訂 **MUST** 透過 PR 進行，並記錄變更理由與版本。
+- 版本採語意化版本（SemVer）：**MAJOR** 移除 / 重新定義原則或重編識別碼造成不相容；**MINOR** 新增或實質擴充；**PATCH** 文字釐清。
+
+### §GV-2 例外處理
+
+- **Critical / Standard**：對 **MUST / MUST NOT** 的例外 **MUST** 經審查同意並完整記錄於 spec / PR：理由、影響範圍、後續處理計畫。
+- **低風險例外**（如較低分級、非機密、無對外影響）**MAY** 採**輕量例外模板**：一行說明「例外項目 + 理由 + 預計補齊時機」即可，仍須可追蹤（§CP-6）。
+- **預設豁免**：Internal 與 Experimental 分級，對「延伸要求（TR / 應用 / 基礎設施延伸）」中標為非 MUST 的項目**預設豁免**，無須逐項記錄例外；但核心原則（CP）之例外**仍須記錄**。
+
+### §GV-3 合規檢查（自動閘門 vs 人工審查）
+
+合併閘門分為兩類，依服務風險分級套用（範圍見附錄 B）：
+
+**A. 自動閘門（CI MUST 強制）——僅放可機器驗證的項目：**
+
+- 測試通過、lint、機密掃描、相依套件安全掃描、API / 事件 schema 破壞性變更檢查（schema / contract diff）、容器映像掃描、覆蓋率報告。
+
+**B. 人工審查清單（PR 審查者 MUST 逐項確認）——無法完全自動化者：**
+
+- spec 與實作是否一致；
+- 架構責任分離是否合理、分層是否混雜；
+- 例外是否可接受且已記錄（§GV-2）；
+- 可觀測性（log / trace / metric）是否足夠；
+- 資料邊界 / 所有權是否正確（見 §SVC-6）；
+- 風險分級標示是否與實際相符。
+
+- 審查者（人為或 AI agent）**MUST** 依清單確認後方可批准；最終合併 **MUST** 由人為核准（見 §CP-5），**MUST NOT** 由 AI agent 自動合併。
+- 核心原則相關之最低必要閘門（可追溯、無機密、經審查）對**所有分級**皆強制。
+
+---
+
+### 附錄 A：通用環境變數命名建議
+
+| 用途 | 建議變數名 | 範例值 | 備註 |
+|------|-----------|--------|------|
+| 環境別 | `APP_ENV` / `NODE_ENV` | `development` / `production` | 控制 Swagger 等行為（見 §API-3）|
+| 服務 Base URL | `<SERVICE>_BASE_URL` | `https://api.example.com` | 不得寫死（§CP-3、§SH-1）|
+| API 金鑰 | `<SERVICE>_API_KEY` | （由環境注入）| 機密，遮罩處理（§CP-2）|
+| 存取權杖 | `<SERVICE>_ACCESS_TOKEN` | （由環境注入）| 機密 |
+| 帳號 / 密碼 | `<SERVICE>_USERNAME` / `<SERVICE>_PASSWORD` | （由環境注入）| 機密 |
+| 連線字串 | `DATABASE_URL` | （由環境注入）| 機密 |
+| CORS 允許 Origin | `CORS_ALLOWED_ORIGINS` | `https://app.example.com` | 逗號分隔，不得用 `*`（見 §API-9）|
+| 監聽埠 | `PORT` | `3000` | 不得寫死 |
+| 前端 API Base URL | `VITE_API_BASE_URL` | `https://api.example.com` | 僅限非機密設定（見 §FE-3）|
+
+### 附錄 B：分級適用矩陣（Tiered Compliance Matrix）
+
+欄位為**服務風險分級**；**核心原則（§CP-1–§CP-6）對所有分級皆 MUST，故未列入下表**（不可豁免）。下表為**延伸要求**的強制程度（標 `—` 表不適用）：
+
+| 延伸要求 | Critical | Standard | Internal | Experimental | 規範 |
+|---------|:--------:|:--------:|:--------:|:------------:|------|
+| 完整 spec 欄位 | MUST | MUST | SHOULD | MAY | §TR-1 |
+| 每個驗收條件對應測試 | MUST | MUST | SHOULD | MAY | §TR-1 |
+| 風險導向測試組合（unit/contract/integration…）| 見 §TR-2 | 見 §TR-2 | 見 §TR-2 | 見 §TR-2 | §TR-2 |
+| 覆蓋率參考（API：stmt≥80/branch≥60）| SHOULD | SHOULD | — | — | §TR-2 |
+| Lint / 靜態分析 | MUST | MUST | SHOULD | MAY | §GV-3 |
+| 機密掃描（自動，CI）| MUST | MUST | SHOULD | SHOULD | §CP-2¹ |
+| 相依套件安全掃描 | MUST | MUST | SHOULD | MAY | §TR-3 |
+| 容器映像掃描 | MUST | SHOULD | SHOULD | MAY | §DEP-2 |
+| 審計日誌（敏感 / 關鍵資料後端）| MUST | MUST | SHOULD | MAY | §TR-5 |
+| 結構化日誌 + 分散式追蹤 | MUST | SHOULD | MAY | MAY | §TR-4 / §SVC-4 |
+| 對外 API / 契約文件（REST→OpenAPI 等）| MUST | MUST | SHOULD | MAY | §API-2 |
+| schema 破壞性變更檢查 | MUST | MUST | SHOULD | MAY | §SVC-2 |
+| 互動式 API 文件受保護（不匿名公開）| MUST | MUST | MUST | SHOULD | §API-3 |
+| 責任分層（transport/app/domain/infra）| MUST | MUST | SHOULD | MAY | §API-4 |
+| 韌性（timeout/retry/circuit breaker）| MUST | SHOULD | MAY | MAY | §SVC-5 |
+| 資料所有權邊界 | MUST | MUST | SHOULD | MAY | §SVC-6 |
+| 並行安全（避免 race condition）| MUST | MUST | SHOULD | MAY | §SVC-8 |
+| 容器化（docker）+ compose 部署 | MUST | MUST | SHOULD | MAY | §DEP-2/§DEP-3 |
+| 第三方映像版本鎖定（禁 `:latest`）| MUST | MUST | SHOULD | SHOULD | §DEP-4 |
+| 資料儲存連線拓樸中立（設定外部化）| MUST | MUST | SHOULD | MAY | §DEP-5 |
+| 檔案儲存路徑 / 憑證外部化 | MUST | MUST | SHOULD | MAY | §DEP-6 |
+| production 安全 header（前端 / 代理）| MUST | MUST | SHOULD | MAY | §FE-2 / §DEP-7 |
+| CSP（前端）| SHOULD | SHOULD | MAY | MAY | §FE-2 |
+
+> ¹ 「不得提交機密」本身為核心原則（§CP-2，所有分級 MUST）；此列指**自動化掃描**的 CI 強制程度。
+
+**所有分級的最低必要閘門**（對應核心原則）：可追溯 spec / 需求來源（§CP-1）、無機密進版控（§CP-2）、經人為核准審查（§CP-5）。Critical / Standard 另須通過上表對應之 MUST 項。
