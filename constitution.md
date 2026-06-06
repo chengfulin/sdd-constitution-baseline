@@ -1,6 +1,6 @@
 # Spec-Driven Development 憲章（核心通用版）
 
-> 版本：5.0.0｜狀態：生效中｜適用範圍：所有應用類型與服務風險分級
+> 版本：5.1.0｜狀態：生效中｜適用範圍：所有應用類型與服務風險分級
 >
 > 本文件為**最高層級規範**。所有 spec、plan、task 與實作皆須遵循本憲章。
 > 當下層文件（spec / plan / 程式碼）與本憲章衝突時，**以本憲章為準**。
@@ -107,7 +107,7 @@
 
 - 核心 / 主要商業邏輯 **MUST** 有自動化測試，涵蓋正常路徑與主要錯誤情境。
 - 測試 **MUST** 可獨立、可重複執行，不依賴外部服務狀態（外部依賴 **SHOULD** 以 mock / stub 隔離）。
-- 測試廣度（邊界全覆蓋）、覆蓋率門檻等依分級調整，見 §TR-2。
+- 測試廣度（邊界全覆蓋）、覆蓋率門檻等依分級調整，見 §TR-2；單元測試之案例設計方法見 §TR-7。
 
 ### §CP-5 變更需經審查（Changes Must Be Reviewed）
 
@@ -146,6 +146,7 @@
 
 - 覆蓋率為**輔助指標，MUST NOT 作為唯一品質門檻**。僅對 API 服務適用數字參考：Critical / Standard **SHOULD** 達 statement ≥ 80%、branch ≥ 60%，且 **SHOULD** 優先要求 contract、核心 domain 與錯誤路徑測試，而非堆疊低價值測試衝高覆蓋率。
 - **Shell Script 與前端應用不套用數字覆蓋率門檻**，以「主要邏輯、邊界與例外案例通過」為準（見 §SH-4、§FE-7）。
+- 單元測試之**案例設計方法**（輸入空間分割）見 §TR-7。
 
 ### §TR-3 相依套件安全（Dependency Security）
 
@@ -170,6 +171,24 @@
 
 - 合併閘門分為「自動閘門」與「人工審查清單」，定義見 §GV-3；各項對各風險分級的強制程度見附錄 B。
 - 核心原則相關之檢查（可追溯、無機密、經審查）為**所有分級的最低必要閘門**。
+
+### §TR-7 單元測試案例設計（Input Space Partitioning）
+
+- **適用範圍**：§CP-4 所指**核心 / 主要商業邏輯**之新增或修改單元；無分支邏輯、純映射等瑣碎單元 **MAY** 豁免，但 **SHOULD** 於 spec / PR 說明。
+- 上述範圍內之單元測試案例 **MUST**（Critical / Standard）/ **SHOULD**（Internal）/ **MAY**（Experimental）以**輸入空間分割（ISP, Input Space Partitioning）**方法設計：
+  1. 識別受測單元的輸入空間**特徵（characteristics）**：參數、相依狀態、環境設定等會影響行為的輸入。
+  2. 將每個特徵分割為**互斥區塊（blocks）**；分割方式**視特徵型別適用**——數值 / 有序型涵蓋有效值、無效值與邊界值；布林 / 列舉等離散型以等值類劃分即可。
+  3. 涵蓋準則以 **Each Choice** 為下限：每個 block 至少被一個測試案例涵蓋；有意省略的 block **SHOULD** 於 spec / PR 註明理由。
+- 本條 **MUST NOT** 被用於堆疊低價值測試案例；案例價值優先序仍依 §TR-2。
+- 測試案例 **SHOULD** 可看出對應的分割依據（如以測試名稱或註解標明「特徵＝區塊」，形式不拘）。
+- 分割結果 **SHOULD** 以簡表記錄於 spec 或測試檔開頭註解，例如：
+
+  | 特徵 | blocks | 代表案例 |
+  |------|--------|---------|
+  | `amount` | 正數 / 0 / 負數 / 超過上限 | `amount=負數 → 拒絕` |
+  | `token` 狀態 | 有效 / 已過期 / 格式錯誤 | `token=已過期 → 401` |
+
+- 本條規範**案例設計方法**；測試類型組合見 §TR-2，驗收條件對應見 §TR-1。
 
 ---
 
@@ -231,6 +250,7 @@
 | 完整 spec 欄位 | MUST | MUST | SHOULD | MAY | §TR-1 |
 | 每個驗收條件對應測試 | MUST | MUST | SHOULD | MAY | §TR-1 |
 | 風險導向測試組合（unit/contract/integration…）| 見 §TR-2 | 見 §TR-2 | 見 §TR-2 | 見 §TR-2 | §TR-2 |
+| 核心邏輯單元測試案例以 ISP 設計（方法）| MUST | MUST | SHOULD | MAY | §TR-7 |
 | 覆蓋率參考（API：stmt≥80/branch≥60）| SHOULD | SHOULD | — | — | §TR-2 |
 | Lint / 靜態分析 | MUST | MUST | SHOULD | MAY | §GV-3 |
 | 機密掃描（自動，CI）| MUST | MUST | SHOULD | SHOULD | §CP-2¹ |
